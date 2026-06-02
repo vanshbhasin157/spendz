@@ -434,27 +434,49 @@ function getScriptUrl(){return(document.getElementById('scriptUrl').value||'').t
 function syncEntry(entry){
   const url=getScriptUrl();if(!url)return;
   setSyncPill('syncing','Syncing…');
-  const params=new URLSearchParams({
-    action:'addRow',
-    id:entry.id,
-    date:entry.date,
-    desc:entry.desc,
-    cat:entry.cat,
-    type:entry.type,
-    amount:entry.amount,
-    acct:entry.acct
-  });
-  fetch(url+'?'+params.toString(),{method:'GET',mode:'no-cors'})
-    .then(()=>{
-      // no-cors = opaque response, assume success
+
+  // Use JSONP — the only reliable way to call Apps Script cross-origin
+  // from a browser without a backend. Injects a <script> tag; Apps Script
+  // wraps the response in the callback function name we pass.
+  const cbName='_gsCb_'+entry.id;
+  const timeout=setTimeout(()=>{
+    cleanup();
+    setSyncPill('err','Sync failed');
+    setTimeout(updateSyncPill,4000);
+  },12000);
+
+  function cleanup(){
+    try{delete window[cbName]}catch(e){}
+    const s=document.getElementById('sw_'+entry.id);
+    if(s)s.remove();
+  }
+
+  window[cbName]=function(res){
+    clearTimeout(timeout);cleanup();
+    if(res&&(res.status==='ok'||res.status==='duplicate')){
       markSynced(entry.id);
-      setSyncPill('ok','Synced');
-      setTimeout(()=>updateSyncPill(),3000);
-    })
-    .catch(()=>{
-      setSyncPill('err','Sync failed');
-      setTimeout(()=>updateSyncPill(),3000);
-    });
+      setSyncPill('ok','Synced ✓');
+      setTimeout(updateSyncPill,3000);
+    } else {
+      setSyncPill('err','Sheet error');
+      setTimeout(updateSyncPill,4000);
+    }
+  };
+
+  const params=new URLSearchParams({
+    action:'addRow',callback:cbName,
+    id:entry.id,date:entry.date,desc:entry.desc,
+    cat:entry.cat,type:entry.type,amount:entry.amount,acct:entry.acct
+  });
+  const s=document.createElement('script');
+  s.id='sw_'+entry.id;
+  s.src=url+'?'+params.toString();
+  s.onerror=()=>{
+    clearTimeout(timeout);cleanup();
+    setSyncPill('err','Sync failed');
+    setTimeout(updateSyncPill,4000);
+  };
+  document.head.appendChild(s);
 }
 
 function markSynced(id){
@@ -525,16 +547,35 @@ function testConnection(){
   const url=getScriptUrl();
   if(!url){toast('⚠️ Paste your URL first');return}
   toast('Testing…');
-  fetch(url+'?action=ping',{method:'GET',mode:'no-cors'})
-    .then(()=>{
+  const cbName='_gsPing_'+Date.now();
+  const timeout=setTimeout(()=>{
+    try{delete window[cbName]}catch(e){}
+    const s=document.getElementById('pingScript');if(s)s.remove();
+    toast('⚠️ No response — check deployment settings');
+  },10000);
+  window[cbName]=function(res){
+    clearTimeout(timeout);
+    try{delete window[cbName]}catch(e){}
+    const s=document.getElementById('pingScript');if(s)s.remove();
+    if(res&&res.status==='ok'){
       document.getElementById('scriptUrl').className='url-inp connected';
-      setSyncPill('ok','Connected');
+      setSyncPill('ok','Connected ✓');
       updateSyncStatusRow();
-      toast('✓ Connection looks good');
-      // retry any pending
-      if(pending.length)setTimeout(retryPending,500);
-    })
-    .catch(()=>{toast('⚠️ Could not reach URL — check script deployment')});
+      toast('✓ Connected — sheet is ready');
+      if(pending.length)setTimeout(retryPending,600);
+    } else {
+      toast('⚠️ Script returned an error');
+    }
+  };
+  const s=document.createElement('script');
+  s.id='pingScript';
+  s.src=url+'?action=ping&callback='+cbName;
+  s.onerror=()=>{
+    clearTimeout(timeout);
+    try{delete window[cbName]}catch(e){}
+    toast('⚠️ Could not reach URL');
+  };
+  document.head.appendChild(s);
 }
 
 // ─── RENDER ──────────────────────────────────────────────────────
