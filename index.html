@@ -414,29 +414,44 @@ body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;font-s
   <div class="sh" id="ish">
     <div class="handle"></div>
     <div class="shtit" id="ishtit">Add Investment</div>
-    <div class="fg" id="ifg_name">
+    <div class="fg">
       <label class="flbl">Name</label>
       <input type="text" class="inp" id="iname" placeholder="e.g. HDFC Flexi Cap, Reliance...">
     </div>
-    <div class="fg">
-      <label class="flbl">Amount (₹)</label>
-      <div class="awrap"><span class="asym">₹</span><input type="number" class="ainp" id="iamt" placeholder="0" inputmode="decimal"></div>
+    <!-- MF / STOCK fields -->
+    <div id="ifg_mfstock" style="display:none">
+      <div class="fg">
+        <label class="flbl">Units / Qty</label>
+        <input type="number" class="inp" id="iunits" placeholder="e.g. 12.345" inputmode="decimal" step="any">
+      </div>
+      <div class="fg">
+        <label class="flbl">Avg Buy Price (per unit)</label>
+        <div class="awrap"><span class="asym">₹</span><input type="number" class="ainp" id="ibuyprice" placeholder="0.00" inputmode="decimal" step="any" oninput="previewPL()"></div>
+      </div>
+      <div class="fg">
+        <label class="flbl">Current Market Price (per unit)</label>
+        <div class="awrap"><span class="asym">₹</span><input type="number" class="ainp" id="icmp" placeholder="0.00" inputmode="decimal" step="any" oninput="previewPL()"></div>
+      </div>
+      <div id="ipl_preview" style="display:none;margin:0 20px 14px;padding:10px 14px;border-radius:10px;font-size:12px;border:1px solid"></div>
     </div>
-    <div class="fg" id="ifg_rate" style="display:none">
-      <label class="flbl" id="irate_lbl">Interest Rate (%)</label>
-      <input type="number" class="inp" id="irate" placeholder="e.g. 7.5" inputmode="decimal" step="0.1">
-    </div>
-    <div class="fg" id="ifg_due" style="display:none">
-      <label class="flbl" id="idue_lbl">Maturity / Due Date</label>
-      <input type="date" class="inp" id="idue">
-    </div>
-    <div class="fg" id="ifg_monthly" style="display:none">
-      <label class="flbl">Monthly Instalment (₹)</label>
-      <div class="awrap"><span class="asym">₹</span><input type="number" class="ainp" id="imonthly" placeholder="0" inputmode="decimal"></div>
-    </div>
-    <div class="fg" id="ifg_units" style="display:none">
-      <label class="flbl">Units / Qty</label>
-      <input type="number" class="inp" id="iunits" placeholder="e.g. 12.345" inputmode="decimal" step="any">
+    <!-- FD / RD fields -->
+    <div id="ifg_fdrd" style="display:none">
+      <div class="fg">
+        <label class="flbl">Principal Amount (Rs)</label>
+        <div class="awrap"><span class="asym">₹</span><input type="number" class="ainp" id="iamt" placeholder="0" inputmode="decimal"></div>
+      </div>
+      <div class="fg">
+        <label class="flbl" id="irate_lbl">Interest Rate (% p.a.)</label>
+        <input type="number" class="inp" id="irate" placeholder="e.g. 7.5" inputmode="decimal" step="0.1">
+      </div>
+      <div class="fg" id="ifg_monthly" style="display:none">
+        <label class="flbl">Monthly Instalment (Rs)</label>
+        <div class="awrap"><span class="asym">₹</span><input type="number" class="ainp" id="imonthly" placeholder="0" inputmode="decimal"></div>
+      </div>
+      <div class="fg">
+        <label class="flbl" id="idue_lbl">Maturity Date</label>
+        <input type="date" class="inp" id="idue">
+      </div>
     </div>
     <button class="svbtn" onclick="saveInvest()">Save</button>
   </div>
@@ -582,19 +597,14 @@ function openInvestSheet(type){
   cIType=type;
   const titles={mf:'Add Mutual Fund',stock:'Add Stock',fd:'Add Fixed Deposit',rd:'Add Recurring Deposit'};
   document.getElementById('ishtit').textContent=titles[type]||'Add Investment';
-  document.getElementById('iname').value='';
-  document.getElementById('iamt').value='';
-  document.getElementById('irate').value='';
-  document.getElementById('idue').value='';
-  document.getElementById('imonthly').value='';
-  document.getElementById('iunits').value='';
-  // Show/hide fields based on type
-  document.getElementById('ifg_rate').style.display=(type==='fd'||type==='rd')?'block':'none';
-  document.getElementById('ifg_due').style.display=(type==='fd'||type==='rd')?'block':'none';
+  // clear all fields
+  ['iname','iunits','ibuyprice','icmp','iamt','irate','idue','imonthly'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+  document.getElementById('ipl_preview').style.display='none';
+  // show correct section
+  const isMFStock=(type==='mf'||type==='stock');
+  document.getElementById('ifg_mfstock').style.display=isMFStock?'block':'none';
+  document.getElementById('ifg_fdrd').style.display=!isMFStock?'block':'none';
   document.getElementById('ifg_monthly').style.display=(type==='rd')?'block':'none';
-  document.getElementById('ifg_units').style.display=(type==='mf'||type==='stock')?'block':'none';
-  if(type==='fd'){document.getElementById('irate_lbl').textContent='Interest Rate (% p.a.)';document.getElementById('idue_lbl').textContent='Maturity Date'}
-  if(type==='rd'){document.getElementById('irate_lbl').textContent='Interest Rate (% p.a.)';document.getElementById('idue_lbl').textContent='Maturity Date'}
   const namePh={mf:'e.g. HDFC Flexi Cap, Axis Bluechip',stock:'e.g. Reliance, Infosys, HDFC Bank',fd:'e.g. ICICI Bank FD',rd:'e.g. SBI RD'};
   document.getElementById('iname').placeholder=namePh[type]||'Name';
   const bd=document.getElementById('ibd'),sh=document.getElementById('ish');
@@ -603,18 +613,40 @@ function openInvestSheet(type){
 }
 function closeInvestSheet(){const sh=document.getElementById('ish'),bd=document.getElementById('ibd');sh.classList.remove('open');setTimeout(()=>bd.classList.remove('open'),300)}
 
+function previewPL(){
+  const units=parseFloat(document.getElementById('iunits').value)||0;
+  const buy=parseFloat(document.getElementById('ibuyprice').value)||0;
+  const cmp=parseFloat(document.getElementById('icmp').value)||0;
+  const prev=document.getElementById('ipl_preview');
+  if(!units||!buy||!cmp){prev.style.display='none';return}
+  const invested=units*buy,current=units*cmp,pl=current-invested,pct=(pl/invested*100);
+  const gain=pl>=0;
+  prev.style.display='block';
+  prev.style.background=gain?'#52c07a10':'#e0525210';
+  prev.style.borderColor=gain?'#52c07a30':'#e0525230';
+  prev.style.color=gain?'var(--g)':'var(--r)';
+  prev.innerHTML=`<b>Invested:</b> ${fmtF(invested)} &nbsp;·&nbsp; <b>Current:</b> ${fmtF(current)}<br><b>P&L:</b> ${gain?'+':''}${fmtF(pl)} (${gain?'+':''}${pct.toFixed(2)}%)`;
+}
+
 function saveInvest(){
   const name=document.getElementById('iname').value.trim();
-  const amt=parseFloat(document.getElementById('iamt').value);
   if(!name){document.getElementById('iname').focus();return}
-  if(!amt||amt<=0){document.getElementById('iamt').focus();return}
-  const item={id:Date.now(),name,amount:amt};
-  if(cIType==='fd'||cIType==='rd'){
+  const item={id:Date.now(),name};
+  if(cIType==='mf'||cIType==='stock'){
+    const units=parseFloat(document.getElementById('iunits').value)||0;
+    const buy=parseFloat(document.getElementById('ibuyprice').value)||0;
+    const cmp=parseFloat(document.getElementById('icmp').value)||0;
+    if(!units||!buy){document.getElementById('iunits').focus();return}
+    item.units=units;item.buyPrice=buy;item.cmp=cmp;
+    item.amount=units*buy; // invested amount = cost basis
+  } else {
+    const amt=parseFloat(document.getElementById('iamt').value);
+    if(!amt||amt<=0){document.getElementById('iamt').focus();return}
+    item.amount=amt;
     item.rate=parseFloat(document.getElementById('irate').value)||0;
     item.due=document.getElementById('idue').value||'';
+    if(cIType==='rd')item.monthly=parseFloat(document.getElementById('imonthly').value)||0;
   }
-  if(cIType==='rd') item.monthly=parseFloat(document.getElementById('imonthly').value)||0;
-  if(cIType==='mf'||cIType==='stock') item.units=parseFloat(document.getElementById('iunits').value)||0;
   investments[cIType].push(item);
   persistInvest();closeInvestSheet();
   renderInvest();renderNetWorth();toast('✓ Investment saved');
@@ -640,18 +672,31 @@ function saveBalance(bank){
 // ══════════════════════════════════════════════════════
 // NET WORTH
 // ══════════════════════════════════════════════════════
-function calcInvestTotal(){
-  return ['mf','stock','fd','rd'].reduce((s,t)=>s+investments[t].reduce((a,i)=>a+i.amount,0),0);
+function calcInvestTotals(){
+  // returns {cost, current} for all investments
+  let cost=0,current=0;
+  ['mf','stock'].forEach(t=>investments[t].forEach(i=>{cost+=i.amount;current+=i.units*(i.cmp||i.buyPrice||0)}));
+  ['fd','rd'].forEach(t=>investments[t].forEach(i=>{cost+=i.amount;current+=i.amount})); // FD/RD: cost=current (no mark-to-market)
+  return{cost,current};
 }
+function calcInvestTotal(){return calcInvestTotals().current}
 function renderNetWorth(){
   const bankTotal=(banks.icici||0)+(banks.hdfc||0);
-  const investTotal=calcInvestTotal();
-  const nw=bankTotal+investTotal;
+  const{cost,current}=calcInvestTotals();
+  const pl=current-cost;
+  const nw=bankTotal+current;
   const me=getMonth();
   const spent=me.filter(e=>e.type==='out').reduce((s,e)=>s+e.amount,0);
   document.getElementById('nwTotal').textContent=fmt(nw);
   document.getElementById('nwBanks').textContent=fmt(bankTotal);
-  document.getElementById('nwInvest').textContent=fmt(investTotal);
+  // show current value + P&L in invest cell
+  const gain=pl>=0;
+  document.getElementById('nwInvest').textContent=fmt(current);
+  document.getElementById('nwInvest').className='nw-cell-val '+(gain?'g':'r');
+  // update invest cell label to show P&L
+  const plPct=cost>0?(pl/cost*100):0;
+  const plEl=document.getElementById('nwInvest').closest('.nw-cell')?.querySelector('.nw-cell-lbl');
+  if(plEl)plEl.textContent=(gain?'▲ +':' ▼ ')+fmt(Math.abs(pl))+' ('+Math.abs(plPct).toFixed(1)+'%)';
   document.getElementById('nwSpent').textContent=fmt(spent);
 }
 
@@ -665,27 +710,42 @@ function daysUntil(dateStr){
 }
 function renderInvestList(type,containerId,totalId,icon,col){
   const items=investments[type]||[];
-  const total=items.reduce((s,i)=>s+i.amount,0);
-  document.getElementById(totalId).textContent=fmt(total);
+  const isMFStock=(type==='mf'||type==='stock');
+  // For MF/stock: totalId shows current value; also track cost
+  let totalCost=0,totalCurrent=0;
+  items.forEach(i=>{
+    if(isMFStock){totalCost+=i.amount;totalCurrent+=i.units*(i.cmp||i.buyPrice||0)}
+    else totalCost+=i.amount;
+  });
+  const displayTotal=isMFStock?totalCurrent:totalCost;
+  document.getElementById(totalId).textContent=fmt(displayTotal);
   const el=document.getElementById(containerId);
-  if(!items.length){el.innerHTML=`<div style="font-size:12px;color:var(--m);text-align:center;padding:10px 0">No entries yet</div>`;return}
+  if(!items.length){el.innerHTML='<div style="font-size:12px;color:var(--m);text-align:center;padding:10px 0">No entries yet</div>';return}
   el.innerHTML=items.map(item=>{
-    let sub='';
-    if(item.rate)sub+=item.rate+'% p.a.';
-    if(item.units)sub+=(sub?' · ':'')+item.units+' units';
-    if(item.monthly)sub+=(sub?' · ':'')+('₹'+item.monthly.toLocaleString('en-IN')+'/mo');
-    let dueHtml='';
-    if(item.due){
-      const days=daysUntil(item.due);
-      const dStr=new Date(item.due+'T12:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
-      if(days!==null&&days<=30&&days>=0)dueHtml=`<div class="due-warn">⚠️ Matures in ${days}d</div>`;
-      else if(days!==null&&days<0)dueHtml=`<div class="due-warn">⚠️ Matured ${Math.abs(days)}d ago</div>`;
-      else sub+=(sub?' · ':'')+'Due '+dStr;
+    let sub='',plHtml='',dueHtml='';
+    if(isMFStock){
+      const invested=item.amount,current=item.units*(item.cmp||item.buyPrice||0);
+      const pl=current-invested,pct=invested>0?(pl/invested*100):0;
+      const gain=pl>=0;
+      sub=item.units+' units · Avg '+fmtF(item.buyPrice)+' · CMP '+fmtF(item.cmp||item.buyPrice);
+      plHtml=`<div style="font-size:10px;margin-top:3px;color:${gain?'var(--g)':'var(--r)'}">${gain?'▲':'▼'} ${gain?'+':''}${fmtF(pl)} (${gain?'+':''}${pct.toFixed(1)}%)</div>`;
+    } else {
+      if(item.rate)sub+=item.rate+'% p.a.';
+      if(item.monthly)sub+=(sub?' · ':'')+('₹'+item.monthly.toLocaleString('en-IN')+'/mo');
+      if(item.due){
+        const days=daysUntil(item.due);
+        const dStr=new Date(item.due+'T12:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+        if(days!==null&&days<=30&&days>=0)dueHtml=`<div class="due-warn">⚠️ Matures in ${days}d</div>`;
+        else if(days!==null&&days<0)dueHtml=`<div class="due-warn">⚠️ Matured ${Math.abs(days)}d ago</div>`;
+        else sub+=(sub?' · ':'')+'Matures '+dStr;
+      }
     }
+    const dispVal=isMFStock?fmtF(item.units*(item.cmp||item.buyPrice||0)):fmtF(item.amount);
     return`<div class="iitem">
       <div class="iitem-ico" style="background:${col}22">${icon}</div>
-      <div class="iitem-meta"><div class="iitem-name">${item.name}</div>${sub?`<div class="iitem-sub">${sub}</div>`:''}${dueHtml}</div>
-      <div class="iitem-rgt"><div class="iitem-val">${fmtF(item.amount)}</div></div>
+      <div class="iitem-meta"><div class="iitem-name">${item.name}</div>${sub?`<div class="iitem-sub">${sub}</div>`:''}${plHtml}${dueHtml}</div>
+      <div class="iitem-rgt"><div class="iitem-val">${dispVal}</div>${isMFStock&&item.cmp?`<div style="font-size:9px;color:var(--m)">cost ${fmtF(item.amount)}</div>`:''}
+      </div>
       <button class="iitem-del" onclick="delInvest('${type}',${item.id})">✕</button>
     </div>`;
   }).join('');
