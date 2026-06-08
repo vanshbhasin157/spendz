@@ -110,6 +110,7 @@ body{background:var(--bg);color:var(--t);font-family:'DM Sans',sans-serif;font-s
 .iitem-val{font-family:'DM Serif Display',serif;font-size:14px;color:var(--g)}
 .iitem-meta2{font-size:10px;color:var(--m);margin-top:1px}
 .iitem-del{background:none;border:none;color:var(--m);font-size:14px;cursor:pointer;padding:4px;flex-shrink:0}
+.iitem-edit{background:none;border:none;font-size:14px;cursor:pointer;padding:4px;flex-shrink:0;opacity:.7}
 
 /* BANK BALANCES */
 .bank-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
@@ -607,6 +608,9 @@ function openInvestSheet(type){
   document.getElementById('ifg_monthly').style.display=(type==='rd')?'block':'none';
   const namePh={mf:'e.g. HDFC Flexi Cap, Axis Bluechip',stock:'e.g. Reliance, Infosys, HDFC Bank',fd:'e.g. ICICI Bank FD',rd:'e.g. SBI RD'};
   document.getElementById('iname').placeholder=namePh[type]||'Name';
+  // clear any stale edit state
+  delete document.getElementById('ish').dataset.editId;
+  delete document.getElementById('ish').dataset.editType;
   const bd=document.getElementById('ibd'),sh=document.getElementById('ish');
   bd.classList.add('open');setTimeout(()=>sh.classList.add('open'),10);
   setTimeout(()=>document.getElementById('iname').focus(),350);
@@ -647,15 +651,59 @@ function saveInvest(){
     item.due=document.getElementById('idue').value||'';
     if(cIType==='rd')item.monthly=parseFloat(document.getElementById('imonthly').value)||0;
   }
-  investments[cIType].push(item);
-  persistInvest();closeInvestSheet();
-  renderInvest();renderNetWorth();toast('✓ Investment saved');
+  const sh=document.getElementById('ish');
+  const editId=sh.dataset.editId?parseInt(sh.dataset.editId):null;
+  const editType=sh.dataset.editType||null;
+  if(editId&&editType){
+    // UPDATE existing
+    const idx=investments[editType].findIndex(x=>x.id===editId);
+    if(idx>=0){
+      item.id=editId; // keep original ID so sheet upsert works
+      investments[editType][idx]=item;
+    }
+    delete sh.dataset.editId;delete sh.dataset.editType;
+    persistInvest();closeInvestSheet();
+    renderInvest();renderNetWorth();toast('✓ Updated');
+    setTimeout(()=>syncInvestToSheet(item,editType),600);
+  } else {
+    // NEW entry
+    investments[cIType].push(item);
+    persistInvest();closeInvestSheet();
+    renderInvest();renderNetWorth();toast('✓ Investment saved');
+    setTimeout(()=>syncInvestToSheet(item,cIType),600);
+  }
 }
 
 function delInvest(type,id){
   if(!confirm('Delete this entry?'))return;
   investments[type]=investments[type].filter(x=>x.id!==id);
   persistInvest();renderInvest();renderNetWorth();toast('🗑 Removed');
+  setTimeout(()=>deleteInvestFromSheet(id),400);
+}
+
+function editInvest(type,id){
+  const item=investments[type]?.find(x=>x.id===id);
+  if(!item)return;
+  cIType=type;
+  const titles={mf:'Edit Mutual Fund',stock:'Edit Stock'};
+  document.getElementById('ishtit').textContent=titles[type]||'Edit Investment';
+  // show MF/stock fields only
+  document.getElementById('ifg_mfstock').style.display='block';
+  document.getElementById('ifg_fdrd').style.display='none';
+  document.getElementById('ipl_preview').style.display='none';
+  // pre-fill
+  document.getElementById('iname').value=item.name||'';
+  document.getElementById('iunits').value=item.units||'';
+  document.getElementById('ibuyprice').value=item.buyPrice||'';
+  document.getElementById('icmp').value=item.cmp||'';
+  document.getElementById('iname').placeholder='';
+  // store editing id on button for saveInvest to detect
+  document.getElementById('ish').dataset.editId=id;
+  document.getElementById('ish').dataset.editType=type;
+  previewPL();
+  const bd=document.getElementById('ibd'),sh=document.getElementById('ish');
+  bd.classList.add('open');setTimeout(()=>sh.classList.add('open'),10);
+  setTimeout(()=>document.getElementById('iunits').focus(),350);
 }
 
 // ══════════════════════════════════════════════════════
@@ -667,6 +715,8 @@ function saveBalance(bank){
   persistBanks();renderNetWorth();
   document.getElementById(bank+'Display').textContent=fmt(val);
   document.getElementById('bankTotal').textContent=fmt((banks.icici||0)+(banks.hdfc||0));
+  clearTimeout(window._bankSyncTimer);
+  window._bankSyncTimer=setTimeout(syncBanksToSheet,1200); // debounce — sync 1.2s after last keystroke
 }
 
 // ══════════════════════════════════════════════════════
@@ -741,12 +791,13 @@ function renderInvestList(type,containerId,totalId,icon,col){
       }
     }
     const dispVal=isMFStock?fmtF(item.units*(item.cmp||item.buyPrice||0)):fmtF(item.amount);
+    const editBtn=isMFStock?`<button class="iitem-edit" onclick="editInvest('${type}',${item.id})">✏️</button>`:'';
     return`<div class="iitem">
       <div class="iitem-ico" style="background:${col}22">${icon}</div>
       <div class="iitem-meta"><div class="iitem-name">${item.name}</div>${sub?`<div class="iitem-sub">${sub}</div>`:''}${plHtml}${dueHtml}</div>
       <div class="iitem-rgt"><div class="iitem-val">${dispVal}</div>${isMFStock&&item.cmp?`<div style="font-size:9px;color:var(--m)">cost ${fmtF(item.amount)}</div>`:''}
       </div>
-      <button class="iitem-del" onclick="delInvest('${type}',${item.id})">✕</button>
+      ${editBtn}<button class="iitem-del" onclick="delInvest('${type}',${item.id})">✕</button>
     </div>`;
   }).join('');
 }
@@ -761,6 +812,45 @@ function renderInvest(){
   document.getElementById('hdfcDisplay').textContent=fmt(banks.hdfc||0);
   document.getElementById('bankTotal').textContent=fmt((banks.icici||0)+(banks.hdfc||0));
   document.getElementById('isub').textContent='Total invested: '+fmt(calcInvestTotal());
+}
+
+// ══════════════════════════════════════════════════════
+// JSONP HELPER — generic fire-and-forget with callback
+// ══════════════════════════════════════════════════════
+function jsonpCall(params, onOk, onErr){
+  const url=getScriptUrl();if(!url){if(onErr)onErr('no url');return}
+  const cbName='_cb_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+  const timeout=setTimeout(()=>{cleanup();if(onErr)onErr('timeout')},15000);
+  function cleanup(){try{delete window[cbName]}catch(e){}const s=document.getElementById(cbName);if(s)s.remove()}
+  window[cbName]=function(res){clearTimeout(timeout);cleanup();if(res&&(res.status==='ok'||res.status==='duplicate')){if(onOk)onOk(res)}else{if(onErr)onErr(res?.message||'error')}};
+  params.callback=cbName;
+  const s=document.createElement('script');s.id=cbName;
+  s.src=url+'?'+new URLSearchParams(params).toString();
+  s.onerror=()=>{clearTimeout(timeout);cleanup();if(onErr)onErr('script error')};
+  document.head.appendChild(s);
+}
+
+// ── Investment sync ───────────────────────────────────
+function syncInvestToSheet(item,itype){
+  const url=getScriptUrl();if(!url)return;
+  const p={action:'syncInvest',id:item.id,itype,name:item.name,
+    units:item.units||0,buyPrice:item.buyPrice||0,cmp:item.cmp||0,
+    invested:item.amount,rate:item.rate||0,due:item.due||'',monthly:item.monthly||0};
+  jsonpCall(p,()=>setSyncPill('ok','Synced ✓'),()=>{});
+}
+
+function deleteInvestFromSheet(id){
+  const url=getScriptUrl();if(!url)return;
+  jsonpCall({action:'deleteInvest',id},()=>{},()=>{});
+}
+
+// ── Bank sync ─────────────────────────────────────────
+function syncBanksToSheet(){
+  const url=getScriptUrl();if(!url)return;
+  setSyncPill('syncing','Syncing…');
+  jsonpCall({action:'syncBanks',icici:banks.icici||0,hdfc:banks.hdfc||0},
+    ()=>{setSyncPill('ok','Synced ✓');setTimeout(updateSyncPill,3000)},
+    ()=>{setSyncPill('err','Sync failed');setTimeout(updateSyncPill,4000)});
 }
 
 // ══════════════════════════════════════════════════════
